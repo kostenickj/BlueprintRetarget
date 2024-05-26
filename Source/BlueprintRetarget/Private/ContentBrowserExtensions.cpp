@@ -4,7 +4,7 @@
 
 #include <CoreGlobals.h>
 #include <AssetToolsModule.h>
-#include <AssetRegistryModule.h>
+#include "AssetRegistry/AssetRegistryModule.h"
 #include <ContentBrowserModule.h>
 #include <IContentBrowserSingleton.h>
 #include <EditorStyleSet.h>
@@ -34,6 +34,8 @@
 #include <Engine/LevelScriptActor.h>
 #include <Engine/SCS_Node.h>
 #include <Engine/SimpleConstructionScript.h>
+
+#include "BlueprintRetarget.h"
 
 
 #define LOCTEXT_NAMESPACE "BlueprintRetarget"
@@ -119,7 +121,7 @@ struct FRetargetClassExtension : public FContentBrowserSelectedAssetExtensionBas
 		for (auto AssetIt = SelectedAssets.CreateConstIterator(); AssetIt; ++AssetIt)
 		{
 			const FAssetData& AssetData = *AssetIt;
-			if (TAssetPtr<UBlueprint> BP = Cast<UBlueprint>(AssetData.GetAsset()))
+			if (TSoftObjectPtr<UBlueprint> BP = Cast<UBlueprint>(AssetData.GetAsset()))
 			{
 				BPs.Add(BP.Get());
 			}
@@ -128,7 +130,7 @@ struct FRetargetClassExtension : public FContentBrowserSelectedAssetExtensionBas
 		const FText WarningTitle = LOCTEXT("RetargetWarningTitle", "WARNING");
 		EAppReturnType::Type Result = FMessageDialog::Open(EAppMsgType::OkCancel, EAppReturnType::Ok,
 			LOCTEXT("RetargetWarning", "This tool is ONLY intended to fix missing or invalid blueprint parents.\n\nDo not try to reparent a working blueprint with it. Assigning parent classes that changed or are unrelated may corrupt your blueprint."),
-			&WarningTitle
+			WarningTitle
 		);
 
 		if (Result == EAppReturnType::Cancel)
@@ -159,7 +161,7 @@ struct FRetargetClassExtension : public FContentBrowserSelectedAssetExtensionBas
 			Options.bIsBlueprintBaseOnly = true; // Only want blueprint base classes
 			Options.bShowUnloadedBlueprints = true;
 
-			Options.ClassFilter = PrepareFilter(BPs);
+			Options.ClassFilters.Add( PrepareFilter(BPs).ToSharedRef());
 		}
 
 		// Temporally hide custom picker from ClassPicker
@@ -332,24 +334,6 @@ struct FRetargetClassExtension : public FContentBrowserSelectedAssetExtensionBas
 				// Ensure that the Blueprint is up-to-date (valid SCS etc.) after compiling (new parent class)
 				EnsureBlueprintIsUpToDate(Blueprint);
 
-				if (Blueprint->NativizationFlag != EBlueprintNativizationFlag::Disabled)
-				{
-					UBlueprint* ParentBlueprint = UBlueprint::GetBlueprintFromClass(ChosenClass);
-					if (ParentBlueprint && ParentBlueprint->NativizationFlag == EBlueprintNativizationFlag::Disabled)
-					{
-						ParentBlueprint->NativizationFlag = EBlueprintNativizationFlag::Dependency;
-
-						FNotificationInfo Warning(FText::Format(
-							LOCTEXT("InterfaceFlaggedForNativization", "{0} flagged for nativization (as a required dependency)."),
-							FText::FromName(ParentBlueprint->GetFName())
-						));
-						Warning.ExpireDuration = 5.0f;
-						Warning.bFireAndForget = true;
-						Warning.Image = FCoreStyle::Get().GetBrush(TEXT("MessageLog.Warning"));
-						FSlateNotificationManager::Get().AddNotification(Warning);
-					}
-				}
-
 				/*if (SCSEditor.IsValid())
 				{
 					SCSEditor->UpdateTree();
@@ -467,7 +451,7 @@ public:
 		MenuBuilder.AddMenuEntry(
 			LOCTEXT("RetargetClass", "Retarget invalid parent"),
 			LOCTEXT("RetargetClass_Tooltip", "Reparents a blueprint's parent class (Useful when parent class is missing or invalid)"),
-			FSlateIcon(FEditorStyle::GetStyleSetName(), "ClassIcon.Note"),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "ClassIcon.Note"),
 			Action_RetargetClass,
 			NAME_None,
 			EUserInterfaceActionType::Button);
@@ -503,7 +487,7 @@ public:
 		return ContentBrowserModule.GetAllAssetViewContextMenuExtenders();
 	}
 
-	static bool IsInvalidBlueprint(const TAssetPtr<UBlueprint>& BP) {
+	static bool IsInvalidBlueprint(const TSoftObjectPtr<UBlueprint>& BP) {
 		return BP && (!BP->SkeletonGeneratedClass || !BP->GeneratedClass);
 	}
 };
